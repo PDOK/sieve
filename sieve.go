@@ -5,8 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"strings"
-	"time"
 
 	"github.com/go-spatial/geom"
 	"github.com/go-spatial/geom/encoding/gpkg"
@@ -19,240 +17,41 @@ type vlaklocaties struct {
 	geometry      geom.Polygon
 }
 
-type feature struct {
-	//columns  map[string]interface{}
-	columns  []interface{}
-	geometry geom.Polygon
-}
-
-type sourceTableInfo struct {
-	name       string
-	columns    []column
-	geomcolumn string
-	srs        int
-}
-
-type column struct {
-	cid       int
-	name      string
-	ctype     string
-	notnull   int
-	dfltValue *int
-	pk        int
-}
-
-type gpkgGeometryColumns struct {
-	tableName        string
-	columnName       string
-	geometryTypeName string
-	srsID            int
-}
-
-func filterGpkgGeometryColumns(h *gpkg.Handle, geometrytype string) []gpkgGeometryColumns {
-	var matches []gpkgGeometryColumns
-
-	query := `SELECT table_name, column_name, geometry_type_name, srs_id FROM gpkg_geometry_columns WHERE upper(geometry_type_name) = upper('%v');`
-	rows, err := h.Query(fmt.Sprintf(query, geometrytype))
-	defer rows.Close()
-	if err != nil {
-		log.Printf("err during closing rows: %v - %v", query, err)
-	}
-
-	for rows.Next() {
-		var ggc gpkgGeometryColumns
-		err := rows.Scan(&ggc.tableName, &ggc.columnName, &ggc.geometryTypeName, &ggc.srsID)
-		if err != nil {
-			log.Fatal(err)
-		}
-		matches = append(matches, ggc)
-	}
-
-	return matches
-}
-
-func getSpatialReferenceSystem(h *gpkg.Handle, id int) gpkg.SpatialReferenceSystem {
-	var srs gpkg.SpatialReferenceSystem
-	query := `SELECT srs_name, srs_id, organization, organization_coordsys_id, definition, description FROM gpkg_spatial_ref_sys WHERE srs_id = %v;`
-	rows, err := h.Query(fmt.Sprintf(query, id))
-	defer rows.Close()
-	if err != nil {
-		log.Printf("err during closing rows: %v - %v", query, err)
-	}
-
-	for rows.Next() {
-		var description *string
-		err := rows.Scan(&srs.Name, &srs.ID, &srs.Organization, &srs.OrganizationCoordsysID, &srs.Definition, &description)
-		if description != nil {
-			srs.Description = *description
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-		// On first hit (and only) return
-		return srs
-	}
-	return srs
-}
-
-func getTableColumns(h *gpkg.Handle, table string) []column {
-	var columns []column
-	query := `PRAGMA table_info('%v');`
-	rows, err := h.Query(fmt.Sprintf(query, table))
-	defer rows.Close()
-	if err != nil {
-		log.Printf("err during closing rows: %v - %v", query, err)
-	}
-
-	for rows.Next() {
-		var column column
-		err := rows.Scan(&column.cid, &column.name, &column.ctype, &column.notnull, &column.dfltValue, &column.pk)
-		if err != nil {
-			log.Fatal(err)
-		}
-		columns = append(columns, column)
-	}
-	return columns
-}
-
-func buildCreateTableQuery(tablename string, columns []column) string {
-	create := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %v`, tablename)
-	var columnparts []string
-	for _, column := range columns {
-		columnpart := column.name + ` ` + column.ctype
-		if column.notnull == 1 {
-			columnpart = columnpart + ` NOT NULL`
-		}
-		if column.pk == 1 {
-			columnpart = columnpart + ` PRIMARY KEY`
-		}
-
-		columnparts = append(columnparts, columnpart)
-	}
-
-	query := create + `(` + strings.Join(columnparts, `, `) + `);`
-	return query
-}
-
-func buildTable(h *gpkg.Handle, table gpkgGeometryColumns, columns []column) error {
-
-	query := buildCreateTableQuery(table.tableName, columns)
-	_, err := h.Exec(query)
-	if err != nil {
-		log.Println("err:", err)
-		return err
-	}
-
-	err = h.AddGeometryTable(gpkg.TableDescription{
-		Name:          table.tableName,
-		ShortName:     table.tableName,
-		Description:   table.tableName,
-		GeometryField: table.columnName,
-		GeometryType:  gpkg.Polygon,
-		SRS:           int32(table.srsID),
-		Z:             gpkg.Prohibited,
-		M:             gpkg.Prohibited,
-	})
-	if err != nil {
-		log.Println("err:", err)
-		return err
-	}
-	return nil
-}
-
-func initTargetGeopackage(src *gpkg.Handle, trgt *gpkg.Handle) ([]sourceTableInfo, error) {
-	tables := filterGpkgGeometryColumns(src, `POLYGON`)
-	var tablesOutput []sourceTableInfo
-	for _, table := range tables {
-		srs := getSpatialReferenceSystem(src, table.srsID)
-		err := trgt.UpdateSRS(srs)
-		if err != nil {
-			return tablesOutput, err
-		}
-
-		columns := getTableColumns(src, table.tableName)
-		err = buildTable(trgt, table, columns)
-		if err != nil {
-			return tablesOutput, err
-		}
-		tablesOutput = append(tablesOutput, sourceTableInfo{name: table.tableName, geomcolumn: table.columnName, columns: columns, srs: table.srsID})
-	}
-	return tablesOutput, nil
-}
-
-func readFeatures(h *gpkg.Handle, preSieve chan feature, table sourceTableInfo) {
+func readFeatures(h *gpkg.Handle, preSieve chan vlaklocaties) {
 	// TODO -> loop over available tables with (multi)polygons
-
-	var cnames []string
-	for _, column := range table.columns {
-		cnames = append(cnames, column.name)
-	}
 
 	var rows *sql.Rows
 	// TODO -> dynamic query based on given table
-	query := `SELECT ` + strings.Join(cnames, `, `) + ` FROM ` + table.name + `;`
-	log.Println(query)
+	query := `SELECT fid, identificatie, geom from vlaklocaties;`
 	rows, err := h.Query(query)
+
 	defer rows.Close()
 	if err != nil {
 		log.Printf("err during closing rows: %v - %v", query, err)
 	}
 
-	cols, err := rows.Columns()
-	if err != nil {
-		log.Println("err:", err)
-	}
-
 	for rows.Next() {
-		vals := make([]interface{}, len(cols))
-		valPtrs := make([]interface{}, len(cols))
-		for i := 0; i < len(cols); i++ {
-			valPtrs[i] = &vals[i]
+		var f int
+		var i string
+		var g interface{}
+
+		err := rows.Scan(&f, &i, &g)
+		if err != nil {
+			log.Fatal(err)
 		}
 
-		if err = rows.Scan(valPtrs...); err != nil {
-			log.Printf("err reading row values: %v", err)
-			return
+		wkbgeom, err := gpkg.DecodeGeometry(g.([]byte))
+		if err != nil {
+			log.Fatal(err)
 		}
-		var f feature
-		var c []interface{}
 
-		for i, colName := range cols {
-			if vals[i] == nil {
-				continue
-			}
-			switch colName {
-			case table.geomcolumn:
-				wkbgeom, err := gpkg.DecodeGeometry(vals[i].([]byte))
-				if err != nil {
-					log.Fatal(err)
-				}
-				var p geom.Polygon
-				p = wkbgeom.Geometry.(geom.Polygon)
-				f.geometry = p
-			default:
-				// Grab any non-nil, non-id, non-bounding box, & non-geometry column as a tag
-				switch v := vals[i].(type) {
-				case []uint8:
-					asBytes := make([]byte, len(v))
-					for j := 0; j < len(v); j++ {
-						asBytes[j] = v[j]
-					}
-					c = append(c, string(asBytes))
-				case int64:
-					c = append(c, v)
-				case float64:
-					c = append(c, v)
-				case time.Time:
-					c = append(c, v)
-				case string:
-					c = append(c, v)
-				default:
-					log.Printf("unexpected type for sqlite column data: %v: %T", cols[i], v)
-				}
-			}
-			f.columns = c
-		}
-		preSieve <- f
+		var p geom.Polygon
+		p = wkbgeom.Geometry.(geom.Polygon)
+
+		row := vlaklocaties{fid: f, identificatie: i, geometry: p}
+
+		preSieve <- row
+
 	}
 	err = rows.Err()
 	if err != nil {
@@ -262,7 +61,7 @@ func readFeatures(h *gpkg.Handle, preSieve chan feature, table sourceTableInfo) 
 	close(preSieve)
 }
 
-func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution float64) {
+func sieveFeatures(preSieve chan vlaklocaties, postSieve chan vlaklocaties, resolution float64) {
 	minArea := resolution * resolution
 	for {
 		feature, hasMore := <-preSieve
@@ -278,8 +77,7 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 							newPolygon = append(newPolygon, interior)
 						}
 					}
-					feature.geometry = newPolygon
-					postSieve <- feature
+					postSieve <- vlaklocaties{fid: feature.fid, identificatie: feature.identificatie, geometry: newPolygon}
 				} else {
 					postSieve <- feature
 				}
@@ -290,19 +88,72 @@ func sieveFeatures(preSieve chan feature, postSieve chan feature, resolution flo
 	close(postSieve)
 }
 
-func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, table sourceTableInfo) {
+func writeFeatures(postSieve chan vlaklocaties, kill chan bool, targetGeopackage string) {
+
+	h, err := gpkg.Open(targetGeopackage)
+	if err != nil {
+		log.Println("Open err:", err)
+		return
+	}
+	defer h.Close()
+
+	rd := gpkg.SpatialReferenceSystem{
+		Name:                   `epsg:28992`,
+		ID:                     28992,
+		Organization:           `epsg`,
+		OrganizationCoordsysID: 28992,
+		Definition: `PROJCS["Amersfoort / RD New", 
+		GEOGCS["Amersfoort", 
+		  DATUM["Amersfoort", 
+			SPHEROID["Bessel 1841", 6377397.155, 299.1528128, AUTHORITY["EPSG","7004"]], 
+			TOWGS84[565.2369, 50.0087, 465.658, -0.4068573303223975, -0.3507326765425626, 1.8703473836067956, 4.0812], 
+			AUTHORITY["EPSG","6289"]], 
+		  PRIMEM["Greenwich", 0.0, AUTHORITY["EPSG","8901"]], 
+		  UNIT["degree", 0.017453292519943295], 
+		  AXIS["Geodetic longitude", EAST], 
+		  AXIS["Geodetic latitude", NORTH], 
+		  AUTHORITY["EPSG","4289"]], 
+		PROJECTION["Oblique_Stereographic", AUTHORITY["EPSG","9809"]], 
+		PARAMETER["central_meridian", 5.387638888888891], 
+		PARAMETER["latitude_of_origin", 52.15616055555556], 
+		PARAMETER["scale_factor", 0.9999079], 
+		PARAMETER["false_easting", 155000.0], 
+		PARAMETER["false_northing", 463000.0], 
+		UNIT["m", 1.0], 
+		AXIS["Easting", EAST], 
+		AXIS["Northing", NORTH], 
+		AUTHORITY["EPSG","28992"]]`,
+		Description: `epsg:28992`,
+	}
+	err = h.UpdateSRS(rd)
+	if err != nil {
+		log.Println("updatesrs err:", err)
+	}
+
+	c := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS vlaklocaties (fid INTEGER NOT NULL PRIMARY KEY, identificatie TEXT, geometry %v);`, gpkg.Polygon.String())
+	_, err = h.Exec(c)
+	if err != nil {
+		log.Println("create err:", err)
+		return
+	}
+
+	err = h.AddGeometryTable(gpkg.TableDescription{
+		Name:          "vlaklocaties",
+		ShortName:     "vlaklocaties",
+		Description:   "vlaklocaties",
+		GeometryField: "geometry",
+		GeometryType:  gpkg.Polygon,
+		SRS:           28992,
+		Z:             gpkg.Prohibited,
+		M:             gpkg.Prohibited,
+	})
+	if err != nil {
+		log.Println("err:", err)
+	}
+
 	var ext *geom.Extent
 
-	var columns []string
-	for _, column := range table.columns {
-		if column.ctype != `POLYGON` {
-			columns = append(columns, column.name)
-		}
-	}
-	columns = append(columns, table.geomcolumn)
-
-	log.Println(strings.Join(columns, `,`))
-	stmt, err := h.Prepare(`INSERT INTO ` + table.name + `(` + strings.Join(columns, `,`) + `) VALUES(?,?,?)`)
+	stmt, err := h.Prepare(`INSERT INTO vlaklocaties(fid, identificatie, geometry) VALUES(?,?,?)`)
 	if err != nil {
 		log.Println("err:", err)
 		return
@@ -313,19 +164,15 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, table
 		if !hasMore {
 			break
 		} else {
-			sb, err := gpkg.NewBinary(int32(table.srs), feature.geometry)
+			sb, err := gpkg.NewBinary(28992, feature.geometry)
 			if err != nil {
 				log.Println("err:", err)
 				continue
 			}
-
-			data := feature.columns
-			data = append(data, sb)
-
-			_, err = stmt.Exec(data...)
+			_, err = stmt.Exec(feature.fid, feature.identificatie, sb)
 			if err != nil {
-				log.Fatalln("stmt err:", err)
-				//continue
+				log.Println("err:", err)
+				continue
 			}
 		}
 
@@ -340,7 +187,7 @@ func writeFeatures(postSieve chan feature, kill chan bool, h *gpkg.Handle, table
 			ext.AddGeometry(feature.geometry)
 		}
 	}
-	h.UpdateGeometryExtent(table.name, ext)
+	h.UpdateGeometryExtent("vlaklocaties", ext)
 
 	log.Println("killing")
 	kill <- true
@@ -353,44 +200,28 @@ func main() {
 	resolution := flag.Float64("r", 0.0, "resolution for sieving")
 	flag.Parse()
 
-	srcHandle, err := gpkg.Open(*sourceGeopackage)
+	h, err := gpkg.Open(*sourceGeopackage)
 	if err != nil {
 		log.Println("err:", err)
 		return
 	}
-	defer srcHandle.Close()
+	defer h.Close()
 
-	trgHandle, err := gpkg.Open(*targetGeopackage)
-	if err != nil {
-		log.Println("Open err:", err)
-		return
-	}
-	defer trgHandle.Close()
+	preSieve := make(chan vlaklocaties)
+	postSieve := make(chan vlaklocaties)
+	kill := make(chan bool)
 
-	tables, err := initTargetGeopackage(srcHandle, trgHandle)
-	if err != nil {
-		log.Println("err:", err)
-		return
-	}
+	go writeFeatures(postSieve, kill, *targetGeopackage)
+	go sieveFeatures(preSieve, postSieve, *resolution)
+	go readFeatures(h, preSieve)
 
-	// Proces the tables sequential
-	for _, table := range tables {
-		preSieve := make(chan feature)
-		postSieve := make(chan feature)
-		kill := make(chan bool)
-
-		go writeFeatures(postSieve, kill, trgHandle, table)
-		go sieveFeatures(preSieve, postSieve, *resolution)
-		go readFeatures(srcHandle, preSieve, table)
-
-		for {
-			if <-kill {
-				break
-			}
+	for {
+		if <-kill {
+			break
 		}
-		close(kill)
 	}
 
+	close(kill)
 	log.Println("done")
 }
 
