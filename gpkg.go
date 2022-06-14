@@ -10,6 +10,11 @@ import (
 	"github.com/go-spatial/geom/encoding/gpkg"
 )
 
+const (
+	memoryCap     = 0.8
+	floatByteSize = 8
+)
+
 type featureGPKG struct {
 	columns  []interface{}
 	geometry geom.Geometry
@@ -25,6 +30,26 @@ func (f featureGPKG) Geometry() geom.Geometry {
 
 func (f *featureGPKG) UpdateGeometry(geometry geom.Geometry) {
 	f.geometry = geometry
+}
+
+func (f *featureGPKG) GeometrySize() int {
+	size := 0
+	geometry := f.Geometry()
+	switch geometry.(type) {
+	case geom.Polygon:
+		for _, geompart := range geometry.(geom.Polygon) {
+			size += len(geompart) * floatByteSize
+		}
+	case geom.MultiPolygon:
+		for _, multigeompart := range geometry.(geom.Polygon) {
+			for _, geompart := range multigeompart {
+				size += len(geompart) * floatByteSize
+			}
+		}
+	default:
+		log.Fatalf("error called GeometrySize on an unimplemented geometry %v", geometry)
+	}
+	return size
 }
 
 type column struct {
@@ -77,7 +102,7 @@ func (source *SourceGeopackage) Init(file string) {
 	source.handle = openGeopackage(file)
 }
 
-func (source SourceGeopackage) ReadFeatures(preSieve chan feature) {
+func (source SourceGeopackage) ReadFeatures(preSieve chan feature, geometriesSize chan int) {
 
 	rows, err := source.handle.Query(source.table.selectSQL())
 	if err != nil {
@@ -134,6 +159,7 @@ func (source SourceGeopackage) ReadFeatures(preSieve chan feature) {
 			}
 			f.columns = c
 		}
+		geometriesSize <- f.GeometrySize()
 		ff := &f
 		preSieve <- ff
 	}
@@ -173,14 +199,33 @@ func (source SourceGeopackage) GetTableInfo() []table {
 }
 
 type TargetGeopackage struct {
-	table    table
-	pagesize int
-	handle   *gpkg.Handle
+	table          table
+	pageSize       int
+	memoryLimit    *float64
+	hasMemoryLimit bool
+	handle         *gpkg.Handle
 }
 
-func (target *TargetGeopackage) Init(file string, pagesize int) {
-	target.pagesize = pagesize
+func (target *TargetGeopackage) Init(file string, pagesize int, memoryLimit int) {
+	target.pageSize = pagesize
+	var limit float64
+	if memoryLimit > 0 {
+		limit = float64(memoryLimit)
+		target.hasMemoryLimit = false
+	} else {
+		limit = 0.0
+		target.hasMemoryLimit = true
+	}
+	target.memoryLimit = &limit
 	target.handle = openGeopackage(file)
+}
+
+func (target TargetGeopackage) PageSize() int {
+	return target.pageSize
+}
+
+func (target TargetGeopackage) MemoryLimit() (float64, bool) {
+	return *target.memoryLimit, target.hasMemoryLimit
 }
 
 func (target TargetGeopackage) CreateTables(tables []table) error {
@@ -198,26 +243,36 @@ func (target TargetGeopackage) CreateTables(tables []table) error {
 	return nil
 }
 
-func (target TargetGeopackage) WriteFeatures(postSieve chan feature) {
-	var features []interface{}
+func Write(target Target, postSieve chan feature, nextGeometriesSize chan int) {
+	var featureBuffer features
+	currentSize := 0
+	remainder := 0
+	memoryLimit, hasMemoryLimit := target.MemoryLimit()
 
 	for {
+		currentSize += <-nextGeometriesSize
+		if hasMemoryLimit && (currentSize > int(memoryLimit*memoryCap)) {
+			target.WriteFeatures(featureBuffer)
+			featureBuffer = nil
+			remainder += (len(featureBuffer) + remainder) % target.PageSize()
+			currentSize = 0
+		}
 		feature, hasMore := <-postSieve
 		if !hasMore {
-			target.writeFeatures(features)
+			target.WriteFeatures(featureBuffer)
 			break
-		} else {
-			features = append(features, feature)
+		}
+		featureBuffer = append(featureBuffer, feature)
 
-			if len(features)%target.pagesize == 0 {
-				target.writeFeatures(features)
-				features = nil
-			}
+		if (len(featureBuffer)+remainder)%target.PageSize() == 0 {
+			target.WriteFeatures(featureBuffer)
+			featureBuffer = nil
+			currentSize = 0
 		}
 	}
 }
 
-func (target TargetGeopackage) writeFeatures(features features) {
+func (target TargetGeopackage) WriteFeatures(features features) {
 	tx, err := target.handle.Begin()
 	if err != nil {
 		log.Fatalf("Could not start a transaction: %s", err)
