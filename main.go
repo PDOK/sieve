@@ -53,58 +53,67 @@ func main() {
 	}
 
 	app.Action = func(c *cli.Context) error {
-		_, err := os.Stat(c.String(SOURCE))
-		if os.IsNotExist(err) {
-			log.Fatalf("error opening source GeoPackage: %s", err)
-		}
-		srcHandle, err := gpkg.Open(c.String(SOURCE))
-		if err != nil {
-			log.Fatalf("error opening source GeoPackage: %s", err)
-		}
-		defer srcHandle.Close()
+		sourcePath := c.String(SOURCE)
+		targetPath := c.String(TARGET)
+		pageSize := c.Int(PAGESIZE)
+		resolution := c.Float64(RESOLUTION)
 
-		trgHandle, err := gpkg.Open(c.String(TARGET))
-		if err != nil {
-			log.Fatalf("error opening target GeoPackage: %s", err)
-		}
-		defer trgHandle.Close()
-
-		tables := getSourceTableInfo(srcHandle)
-
-		err = initTargetGeopackage(trgHandle, tables)
-		if err != nil {
-			log.Fatalf("error initialization the target GeoPackage: %s", err)
-		}
-
-		log.Println("=== start sieving ===")
-
-		// Process the tables sequential
-		for _, table := range tables {
-			log.Printf("  sieving %s", table.name)
-			preSieve := make(chan feature)
-			postSieve := make(chan feature)
-			kill := make(chan bool)
-
-			go writeFeatures(postSieve, kill, trgHandle, table, c.Int(PAGESIZE))
-			go sieveFeatures(preSieve, postSieve, c.Float64(RESOLUTION))
-			go readFeatures(srcHandle, preSieve, table)
-
-			for {
-				if <-kill {
-					break
-				}
-			}
-			close(kill)
-			log.Println(fmt.Sprintf(`  finished %s`, table.name))
-			log.Println("")
-		}
-
-		log.Println("=== done sieving ===")
-		return nil
+		return RunSieve(sourcePath, targetPath, pageSize, resolution)
 	}
 
 	err := app.Run(os.Args)
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func RunSieve(sourcePath string, targetPath string, pageSize int, resolution float64) error {
+	_, err := os.Stat(sourcePath)
+	if os.IsNotExist(err) {
+		log.Fatalf("error opening source GeoPackage: %s", err)
+	}
+	srcHandle, err := gpkg.Open(sourcePath)
+	if err != nil {
+		log.Fatalf("error opening source GeoPackage: %s", err)
+	}
+	defer srcHandle.Close()
+
+	trgHandle, err := gpkg.Open(targetPath)
+	if err != nil {
+		log.Fatalf("error opening target GeoPackage: %s", err)
+	}
+	defer trgHandle.Close()
+
+	tables := getSourceTableInfo(srcHandle)
+
+	err = initTargetGeopackage(trgHandle, tables)
+	if err != nil {
+		log.Fatalf("error initialization the target GeoPackage: %s", err)
+	}
+
+	log.Println("=== start sieving ===")
+
+	// Process the tables sequential
+	for _, table := range tables {
+		log.Printf("  sieving %s", table.name)
+		preSieve := make(chan feature)
+		postSieve := make(chan feature)
+		kill := make(chan bool)
+
+		go writeFeatures(postSieve, kill, trgHandle, table, pageSize)
+		go sieveFeatures(preSieve, postSieve, resolution)
+		go readFeatures(srcHandle, preSieve, table)
+
+		for {
+			if <-kill {
+				break
+			}
+		}
+		close(kill)
+		log.Println(fmt.Sprintf(`  finished %s`, table.name))
+		log.Println("")
+	}
+
+	log.Println("=== done sieving ===")
+	return nil
 }
