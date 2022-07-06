@@ -56,26 +56,52 @@ func TestArea(t *testing.T) {
 	}
 }
 
-func TestPolygonSieve(t *testing.T) {
+func TestPolygonCentroid(t *testing.T) {
 	var tests = []struct {
-		geom       [][][2]float64
-		resolution float64
-		sieved     [][][2]float64
+		geom     [][][2]float64
+		expected [2]float64
 	}{
-		// Lower resolution
-		0: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}},
-		// Higher resolution
-		1: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(101), sieved: nil},
-		// Nil input
-		2: {geom: nil, resolution: float64(1), sieved: nil},
-		// Filterout donut
-		3: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 6}, {6, 6}, {6, 5}, {5, 5}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}},
-		// Donut stays
-		4: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}, resolution: float64(3), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}},
+		// Rectangle
+		0: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, expected: [2]float64{5, 5}},
+		// Rectangle with hole
+		1: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{2, 2}, {2, 8}, {8, 8}, {8, 2}, {2, 2}}}, expected: [2]float64{5, 5}},
+		// Rectangle with empty hole
+		2: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {}}, expected: [2]float64{5, 5}},
+		// Rectangle with nil hole
+		3: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, nil}, expected: [2]float64{5, 5}},
+		// nil geometry
+		4: {geom: nil, expected: [2]float64{0, 0}},
 	}
 
 	for k, test := range tests {
-		geom := polygonSieve(test.geom, test.resolution)
+		result := getPolygonCentroid(test.geom)
+		if result != test.expected {
+			t.Errorf("test: %d, expected: %f \ngot: %f", k, test.expected, result)
+		}
+	}
+}
+
+func TestPolygonSieve(t *testing.T) {
+	var tests = []struct {
+		geom          [][][2]float64
+		resolution    float64
+		sieved        [][][2]float64
+		expectReduced bool
+	}{
+		// Lower resolution
+		0: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, expectReduced: false},
+		// Higher resolution
+		1: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(101), sieved: [][][2]float64{{{5, 5}}}, expectReduced: true},
+		// Nil input
+		2: {geom: nil, resolution: float64(1), sieved: nil, expectReduced: false},
+		// Filterout donut
+		3: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 6}, {6, 6}, {6, 5}, {5, 5}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, expectReduced: false},
+		// Donut stays
+		4: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}, resolution: float64(3), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}, expectReduced: false},
+	}
+
+	for k, test := range tests {
+		geom, isReduced := polygonSieve(test.geom, test.resolution)
 		if test.sieved != nil && geom != nil {
 			if area(geom) != area(test.sieved) {
 				t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
@@ -85,31 +111,58 @@ func TestPolygonSieve(t *testing.T) {
 		} else if test.sieved != nil && geom == nil {
 			t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
 		}
+		if test.expectReduced != isReduced {
+			t.Errorf("test: %d, expected: %t \ngot: %t", k, test.expectReduced, isReduced)
+		}
+	}
+}
+
+func TestMultiPolygonCentroid(t *testing.T) {
+	var tests = []struct {
+		geom     [][][][2]float64
+		expected [2]float64
+	}{
+		// Rectangle
+		0: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, expected: [2]float64{5, 5}},
+		// Nil input
+		1: {geom: nil, expected: [2]float64{0, 0}},
+		// Two rectangles
+		2: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, expected: [2]float64{7.5, 7.5}},
+		// Two rectangles, different coordinates
+		3: {geom: [][][][2]float64{{{{10, 10}, {10, 20}, {20, 20}, {20, 10}, {10, 10}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, expected: [2]float64{15.5, 15.5}},
+	}
+
+	for k, test := range tests {
+		result := getMultiPolygonCentroid(test.geom)
+		if result != test.expected {
+			t.Errorf("test: %d, expected: %f \ngot: %f", k, test.expected, result)
+		}
 	}
 }
 
 func TestMultiPolygonSieve(t *testing.T) {
 	var tests = []struct {
-		geom       [][][][2]float64
-		resolution float64
-		sieved     [][][][2]float64
+		geom          [][][][2]float64
+		resolution    float64
+		sieved        [][][][2]float64
+		expectReduced bool
 	}{
 		// Lower single polygon resolution
-		0: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}},
+		0: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, expectReduced: false},
 		// Higher single polygon resolution
-		1: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(101), sieved: nil},
+		1: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(101), sieved: [][][][2]float64{{{{5, 5}}}}, expectReduced: true},
 		// Nil input
-		2: {geom: nil, resolution: float64(1), sieved: nil},
+		2: {geom: nil, resolution: float64(1), sieved: nil, expectReduced: false},
 		// Low multi polygon resolution
-		3: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}},
+		3: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, expectReduced: false},
 		// single hit on multi polygon
-		4: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(9), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}},
+		4: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(9), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{17.5, 17.5}}}}, expectReduced: true},
 		// single hit on multi polygon
-		5: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(101), sieved: nil},
+		5: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(101), sieved: [][][][2]float64{{{{5, 5}}}, {{{17.5, 17.5}}}}, expectReduced: true},
 	}
 
 	for k, test := range tests {
-		geom := multiPolygonSieve(test.geom, test.resolution)
+		geom, isReduced := multiPolygonSieve(test.geom, test.resolution)
 		if test.sieved != nil && geom != nil {
 			if len(geom) != len(test.sieved) {
 				t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
@@ -118,6 +171,9 @@ func TestMultiPolygonSieve(t *testing.T) {
 			t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
 		} else if test.sieved != nil && geom == nil {
 			t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
+		}
+		if test.expectReduced != isReduced {
+			t.Errorf("test: %d, expected: %t \ngot: %t", k, test.expectReduced, isReduced)
 		}
 	}
 }

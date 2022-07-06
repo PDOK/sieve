@@ -28,6 +28,10 @@ func (f *featureGPKG) UpdateGeometry(geometry geom.Geometry) {
 	f.geometry = geometry
 }
 
+func (f *featureGPKG) IsReduced(isReduced bool) {
+	f.columns = append(f.columns, isReduced)
+}
+
 type column struct {
 	cid       int
 	name      string
@@ -323,6 +327,10 @@ func (t Table) selectSQL() string {
 // build the INSERT statement based on the table and columns
 func (t Table) insertSQL() string {
 	var csql, vsql []string
+	t.columns = append(t.columns, column{
+		name:  "isReduced",
+		ctype: "BOOLEAN",
+	})
 	for _, c := range t.columns {
 		if c.name != t.gcolumn {
 			csql = append(csql, c.name)
@@ -374,6 +382,10 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 
 // buildTable creates a given destination table with the necessary gpkg_ information
 func buildTable(h *gpkg.Handle, t Table) error {
+	t.columns = append(t.columns, column{
+		name:  "isReduced",
+		ctype: "BOOLEAN",
+	})
 	query := t.createSQL()
 	_, err := h.Exec(query)
 	if err != nil {
@@ -385,8 +397,9 @@ func buildTable(h *gpkg.Handle, t Table) error {
 		ShortName:     t.Name,
 		Description:   t.Name,
 		GeometryField: t.gcolumn,
-		GeometryType:  t.gtype,
-		SRS:           int32(t.srs.ID),
+		// as sieved geometry is reduced to a POINT, it is necessary to allow multiple geometry types
+		GeometryType: gpkg.Geometry,
+		SRS:          int32(t.srs.ID),
 		//
 		Z: gpkg.Prohibited,
 		M: gpkg.Prohibited,

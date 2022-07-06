@@ -1,6 +1,8 @@
 package pkg
 
 import (
+	geometry "github.com/twpayne/go-geom"
+	"github.com/twpayne/go-geom/xy"
 	"log"
 	"math"
 
@@ -27,25 +29,28 @@ func sieveFeatures(preSieve chan Feature, postSieve chan Feature, resolution flo
 			preSieveCount++
 			switch feature.Geometry().(type) {
 			case geom.Polygon:
-				var p geom.Polygon
-				p = feature.Geometry().(geom.Polygon)
-				if p := polygonSieve(p, resolution); p != nil {
-					feature.UpdateGeometry(p)
+				p := feature.Geometry().(geom.Polygon)
+				sievedPolygon, isReduced := polygonSieve(p, resolution)
+				feature.UpdateGeometry(sievedPolygon)
+				feature.IsReduced(isReduced)
+				if !isReduced {
 					postSieveCount++
-					postSieve <- feature
 				}
+				postSieve <- feature
 			case geom.MultiPolygon:
-				var mp geom.MultiPolygon
-				mp = feature.Geometry().(geom.MultiPolygon)
-				if mp := multiPolygonSieve(mp, resolution); mp != nil {
-					feature.UpdateGeometry(mp)
-					multiPolygonCount++
+				mp := feature.Geometry().(geom.MultiPolygon)
+				mp, isReduced := multiPolygonSieve(mp, resolution)
+				feature.UpdateGeometry(mp)
+				feature.IsReduced(isReduced)
+				multiPolygonCount++
+				if !isReduced {
 					postSieveCount++
-					postSieve <- feature
 				}
+				postSieve <- feature
 			default:
 				postSieveCount++
 				nonPolygonCount++
+				feature.IsReduced(false)
 				postSieve <- feature
 			}
 		}
@@ -57,7 +62,7 @@ func sieveFeatures(preSieve chan Feature, postSieve chan Feature, resolution flo
 	if preSieveCount != nonPolygonCount {
 		log.Printf("     multipolygons: %d", multiPolygonCount)
 	}
-	log.Printf("              kept: %d", postSieveCount)
+	log.Printf("       not reduced: %d", postSieveCount)
 }
 
 // writeFeatures collects the processed features by the sieveFeatures and
@@ -69,19 +74,54 @@ func writeFeaturesToTarget(postSieve chan Feature, kill chan bool, target Target
 	kill <- true
 }
 
-// multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
-func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) geom.MultiPolygon {
-	var sievedMultiPolygon geom.MultiPolygon
+// getMultiPolygonCentroid returns Point with the centroid value of a multiPolygon
+func getMultiPolygonCentroid(mp geom.MultiPolygon) geom.Point {
+	var multiPolygonCoords [][][]geometry.Coord
 	for _, p := range mp {
-		if sievedPolygon := polygonSieve(p, resolution); sievedPolygon != nil {
+		multiPolygonCoords = append(multiPolygonCoords, getPolygonCoords(p))
+	}
+	if len(multiPolygonCoords) != 0 {
+		centroidCoord, err := xy.Centroid(geometry.NewMultiPolygon(geometry.XY).MustSetCoords(multiPolygonCoords))
+		if err != nil {
+			panic(err)
+		}
+		return [2]float64{centroidCoord[0], centroidCoord[1]}
+	} else {
+		return [2]float64{0, 0}
+	}
+}
+
+// getPolygonCentroid returns Point with the centroid value of a polygon
+func getPolygonCentroid(p geom.Polygon) geom.Point {
+	polygonCoords := getPolygonCoords(p)
+	if polygonCoords != nil {
+		centroidCoord, err := xy.Centroid(geometry.NewPolygon(geometry.XY).MustSetCoords(polygonCoords))
+		if err != nil {
+			panic(err)
+		}
+		return [2]float64{centroidCoord[0], centroidCoord[1]}
+	} else {
+		return [2]float64{0, 0}
+	}
+}
+
+// multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
+func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) (geom.MultiPolygon, bool) {
+	var sievedMultiPolygon geom.MultiPolygon
+	var isReduced bool
+	for _, p := range mp {
+		if sievedPolygon, b := polygonSieve(p, resolution); b == false {
 			sievedMultiPolygon = append(sievedMultiPolygon, sievedPolygon)
+		} else {
+			isReduced = true
+			sievedMultiPolygon = append(sievedMultiPolygon, [][][2]float64{{getPolygonCentroid(p)}})
 		}
 	}
-	return sievedMultiPolygon
+	return sievedMultiPolygon, isReduced
 }
 
 // polygonSieve will sieve a given POLYGON
-func polygonSieve(p geom.Polygon, resolution float64) geom.Polygon {
+func polygonSieve(p geom.Polygon, resolution float64) (geom.Polygon, bool) {
 	minArea := resolution * resolution
 	if area(p) > minArea {
 		if len(p) > 1 {
@@ -92,11 +132,15 @@ func polygonSieve(p geom.Polygon, resolution float64) geom.Polygon {
 					sievedPolygon = append(sievedPolygon, interior)
 				}
 			}
-			return sievedPolygon
+			return sievedPolygon, false
 		}
-		return p
+		return p, false
 	}
-	return nil
+	if p == nil {
+		return nil, false
+	} else {
+		return [][][2]float64{{getPolygonCentroid(p)}}, true
+	}
 }
 
 // calculate the area of a polygon
@@ -144,4 +188,25 @@ func Sieve(source Source, target Target, resolution float64) {
 		}
 	}
 	close(kill)
+}
+
+func getPolygonCoords(p geom.Polygon) [][]geometry.Coord {
+	var multiXyCoordinates [][]geometry.Coord
+	if p == nil {
+		return nil
+	}
+	for _, polygon := range p {
+		var xyCoordinates []geometry.Coord
+		if len(polygon) != 0 {
+			for _, point := range polygon {
+				xyCoordinates = append(xyCoordinates, makeCoord(point))
+			}
+			multiXyCoordinates = append(multiXyCoordinates, xyCoordinates)
+		}
+	}
+	return multiXyCoordinates
+}
+
+func makeCoord(point [2]float64) geometry.Coord {
+	return geometry.Coord{point[0], point[1]}
 }

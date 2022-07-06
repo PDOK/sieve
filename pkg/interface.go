@@ -6,6 +6,7 @@ type Feature interface {
 	Columns() []interface{}
 	Geometry() geom.Geometry
 	UpdateGeometry(geom.Geometry)
+	IsReduced(bool)
 }
 
 type Source interface {

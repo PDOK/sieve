@@ -9,6 +9,8 @@ require (
 	github.com/urfave/cli/v2 v2.8.1
 )
 
+require github.com/twpayne/go-geom v1.4.1
+
 require (
 	github.com/gdey/errors v0.0.0-20190426172550-8ebd5bc891fb // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
