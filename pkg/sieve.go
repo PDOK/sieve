@@ -94,11 +94,6 @@ func getMultiPolygonCentroid(mp geom.MultiPolygon) geom.Point {
 // getPolygonCentroid returns Point with the centroid value of a polygon
 func getPolygonCentroid(p geom.Polygon) geom.Point {
 	polygonCoords := getPolygonCoords(p)
-	for _, test := range polygonCoords {
-		if len(test) == 3 {
-			print("oei?")
-		}
-	}
 	if polygonCoords != nil {
 		polygon := geometry.NewPolygon(geometry.XY).MustSetCoords(polygonCoords)
 		centroidCoord, err := xy.Centroid(polygon)
