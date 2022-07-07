@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	geometry "github.com/go-spatial/geom"
 	"testing"
 )
 
@@ -103,7 +104,7 @@ func TestPolygonSieve(t *testing.T) {
 	for k, test := range tests {
 		geom, isReduced := polygonSieve(test.geom, test.resolution)
 		if test.sieved != nil && geom != nil {
-			if area(geom) != area(test.sieved) {
+			if _, isPolygon := geom.(geometry.Polygon); isPolygon && area(geom.(geometry.Polygon)) != area(test.sieved) {
 				t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
 			}
 		} else if test.sieved == nil && geom != nil {

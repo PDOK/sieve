@@ -112,7 +112,7 @@ func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) (geom.MultiPoly
 	var isReduced bool
 	for _, p := range mp {
 		if sievedPolygon, b := polygonSieve(p, resolution); b == false {
-			sievedMultiPolygon = append(sievedMultiPolygon, sievedPolygon)
+			sievedMultiPolygon = append(sievedMultiPolygon, sievedPolygon.(geom.Polygon))
 		} else {
 			isReduced = true
 			sievedMultiPolygon = append(sievedMultiPolygon, [][][2]float64{{getPolygonCentroid(p)}})
@@ -122,7 +122,7 @@ func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) (geom.MultiPoly
 }
 
 // polygonSieve will sieve a given POLYGON
-func polygonSieve(p geom.Polygon, resolution float64) (geom.Polygon, bool) {
+func polygonSieve(p geom.Polygon, resolution float64) (geom.Geometry, bool) {
 	minArea := resolution * resolution
 	if area(p) > minArea {
 		if len(p) > 1 {
@@ -140,7 +140,7 @@ func polygonSieve(p geom.Polygon, resolution float64) (geom.Polygon, bool) {
 	if p == nil {
 		return nil, false
 	} else {
-		return [][][2]float64{{getPolygonCentroid(p)}}, true
+		return getPolygonCentroid(p), true
 	}
 }
 
