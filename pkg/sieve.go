@@ -58,7 +58,6 @@ func sieveFeatures(preSieve chan Feature, readyToWrite chan Feature, resolution 
 			}
 		}
 	}
-	close(readyToWrite)
 	close(needsProcessing)
 
 	log.Printf("    total features: %d", preSieveCount)
@@ -105,6 +104,7 @@ func processFeatures(needsProcessing chan Feature, readyToWrite chan Feature, re
 			}
 		}
 	}
+	close(readyToWrite)
 }
 
 // writeFeatures collects the processed features by the sieveFeatures and
