@@ -13,6 +13,7 @@ const SOURCE string = `source`
 const TARGET string = `target`
 const RESOLUTION string = `resolution`
 const PAGESIZE string = `pagesize`
+const REPLACE_WITH_POINT string = `replace_with_point`
 
 func main() {
 	app := cli.NewApp()
@@ -50,6 +51,14 @@ func main() {
 			Required: false,
 			EnvVars:  []string{"SIEVE_PAGESIZE"},
 		},
+		&cli.BoolFlag{
+			Name:     REPLACE_WITH_POINT,
+			Aliases:  []string{"replace"},
+			Usage:    "Should sieved geometries be replaced with POINT geometry",
+			Value:    false,
+			Required: false,
+			EnvVars:  []string{"REPLACE_WITH_POINT"},
+		},
 	}
 
 	app.Action = func(c *cli.Context) error {
@@ -69,7 +78,7 @@ func main() {
 
 		tables := source.GetTableInfo()
 
-		err = target.CreateTables(tables)
+		err = target.CreateTables(tables, c.Bool(REPLACE_WITH_POINT))
 		if err != nil {
 			log.Fatalf("error initialization the target GeoPackage: %s", err)
 		}
@@ -81,7 +90,7 @@ func main() {
 			log.Printf("  sieving %s", table.Name)
 			source.Table = table
 			target.Table = table
-			pkg.Sieve(source, target, c.Float64(RESOLUTION))
+			pkg.Sieve(source, target, c.Float64(RESOLUTION), c.Bool(REPLACE_WITH_POINT))
 			log.Printf("  finised %s", table.Name)
 		}
 
