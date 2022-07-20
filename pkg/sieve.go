@@ -32,12 +32,12 @@ func sieveFeatures(preSieve chan Feature, readyToWrite chan Feature, resolution 
 				p := feature.Geometry().(geom.Polygon)
 				sievedPolygon, b := polygonSieve(p, resolution)
 				if b {
+					needsProcessingCount++
+					needsProcessing <- feature
+				} else {
 					feature.UpdateGeometry(sievedPolygon)
 					postSieveCount++
 					readyToWrite <- feature
-				} else {
-					needsProcessingCount++
-					needsProcessing <- feature
 				}
 			case geom.MultiPolygon:
 				mp := feature.Geometry().(geom.MultiPolygon)
