@@ -90,7 +90,7 @@ func processFeatures(needsProcessing chan Feature, readyToWrite chan Feature, re
 				var processedMultiPolygon geom.MultiPolygon
 				for _, p := range mp {
 					minArea := resolution * resolution
-					if area(p) > minArea {
+					if area(p) < minArea {
 						if replaceToggle {
 							centroid := getPolygonCentroid(p)
 							processedMultiPolygon = append(processedMultiPolygon, [][][2]float64{{centroid}})
