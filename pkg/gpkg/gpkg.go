@@ -192,14 +192,14 @@ func (target TargetGeopackage) Close() {
 	target.handle.Close()
 }
 
-func (target TargetGeopackage) CreateTables(tables []Table) error {
+func (target TargetGeopackage) CreateTables(tables []Table, replaceGeomWithPOint bool) error {
 	for _, table := range tables {
 		err := target.handle.UpdateSRS(table.srs)
 		if err != nil {
 			return err
 		}
 
-		err = buildTable(target.handle, table)
+		err = buildTable(target.handle, table, replaceGeomWithPOint)
 		if err != nil {
 			return err
 		}
@@ -373,11 +373,19 @@ func getTableColumns(h *gpkg.Handle, table string) []column {
 }
 
 // buildTable creates a given destination table with the necessary gpkg_ information
-func buildTable(h *gpkg.Handle, t Table) error {
+func buildTable(h *gpkg.Handle, t Table, replaceGeomWithPoint bool) error {
 	query := t.createSQL()
 	_, err := h.Exec(query)
 	if err != nil {
 		log.Fatalf("error building table in target GeoPackage: %s", err)
+	}
+
+	// as sieved geometry is replaced by a POINT, it is necessary to allow multiple geometry types
+	var geometryType gpkg.GeometryType
+	if replaceGeomWithPoint {
+		geometryType = gpkg.Geometry
+	} else {
+		geometryType = t.gtype
 	}
 
 	err = h.AddGeometryTable(gpkg.TableDescription{
@@ -385,7 +393,7 @@ func buildTable(h *gpkg.Handle, t Table) error {
 		ShortName:     t.Name,
 		Description:   t.Name,
 		GeometryField: t.gcolumn,
-		GeometryType:  t.gtype,
+		GeometryType:  geometryType,
 		SRS:           int32(t.srs.ID),
 		//
 		Z: gpkg.Prohibited,
