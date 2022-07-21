@@ -1,6 +1,8 @@
 package pkg
 
 import (
+	"github.com/go-spatial/geom"
+	"reflect"
 	"testing"
 )
 
@@ -135,4 +137,80 @@ func TestMultiPolygonSieve(t *testing.T) {
 			t.Errorf("test: %d, expected: %t \ngot: %t", k, test.expectedSieved, sieved)
 		}
 	}
+}
+
+func TestProcessFeatures(t *testing.T) {
+	var tests = []struct {
+		geom          geom.Geometry
+		expectedGeom  geom.Geometry
+		resolution    float64
+		replaceToggle bool
+	}{
+		// Lower single polygon resolution
+		0: {geom: geom.MultiPolygon{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, expectedGeom: geom.MultiPolygon{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(1), replaceToggle: false},
+		// Higher single polygon resolution
+		1: {geom: geom.MultiPolygon{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, expectedGeom: geom.MultiPolygon{{{{5, 5}}}}, resolution: float64(101), replaceToggle: true},
+		// 2 hits on multi polygon
+		2: {geom: geom.MultiPolygon{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, expectedGeom: geom.MultiPolygon{{{{5, 5}}}, {{{17.5, 17.5}}}}, resolution: float64(101), replaceToggle: true},
+		// 1 hit on multi polygon
+		3: {geom: geom.MultiPolygon{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, expectedGeom: geom.MultiPolygon{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{17.5, 17.5}}}}, resolution: float64(7), replaceToggle: true},
+		// Polygon
+		4: {geom: geom.Polygon{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, expectedGeom: geom.Polygon{{{5, 5}}}, resolution: float64(101), replaceToggle: true},
+	}
+
+	for k, test := range tests {
+		readyToWrite := make(chan Feature)
+		needProcessing := make(chan Feature)
+
+		go processFeatures(needProcessing, readyToWrite, test.resolution, test.replaceToggle)
+		go testRoutineProcessFeature(readyToWrite, test.expectedGeom, t, k)
+
+		testFeature := testFeature{
+			geometry: test.geom,
+		}
+		needProcessing <- &testFeature
+
+		close(needProcessing)
+	}
+}
+
+func testRoutineProcessFeature(readyToWrite chan Feature, expectedGeom geom.Geometry, t *testing.T, k int) {
+	for {
+		feature, hasMore := <-readyToWrite
+		if !hasMore {
+			break
+		} else {
+			switch feature.Geometry().(type) {
+			case geom.Polygon:
+				p := feature.Geometry().(geom.Polygon).LinearRings()
+				e := expectedGeom.(geom.Polygon).LinearRings()
+				if !reflect.DeepEqual(p, e) {
+					t.Errorf("test: %d, expected: %v \ngot: %v", k, e, p)
+				}
+			case geom.MultiPolygon:
+				mp := feature.Geometry().(geom.MultiPolygon).Polygons()
+				e := expectedGeom.(geom.MultiPolygon).Polygons()
+				if !reflect.DeepEqual(mp, e) {
+					t.Errorf("test: %d, expected: %v \ngot: %v", k, e, mp)
+				}
+			}
+		}
+	}
+}
+
+type testFeature struct {
+	columns  []interface{}
+	geometry geom.Geometry
+}
+
+func (f testFeature) Columns() []interface{} {
+	return f.columns
+}
+
+func (f testFeature) Geometry() geom.Geometry {
+	return f.geometry
+}
+
+func (f *testFeature) UpdateGeometry(geometry geom.Geometry) {
+	f.geometry = geometry
 }

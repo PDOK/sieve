@@ -30,6 +30,8 @@ vector tiles can be omitted, and less data needs to be processed.
 - :warning: Spatialite lib is mandatory for running this application. This lib is needed for
   creating the RTree triggers on the spatial tables for updating/maintaining the
   RTree.
+- It is also possible to replace the filtered out geometry with a centroid POINT geometry instead, 
+  using the -replace option
 
 ## Usage
 
@@ -37,7 +39,8 @@ vector tiles can be omitted, and less data needs to be processed.
 go build .
 
 go run . -s=[source GPKG] -t=[target GPKG] -r=[resolution for filtering] \
-   -p=[pagesize for writing to target GPKG]
+   -p=[pagesize for writing to target GPKG] -replace [t/f for replacing \
+   instead of removing (optional)]
 
 go test ./... -covermode=atomic
 ```
