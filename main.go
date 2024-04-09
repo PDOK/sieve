@@ -13,7 +13,7 @@ const SOURCE string = `source`
 const TARGET string = `target`
 const RESOLUTION string = `resolution`
 const PAGESIZE string = `pagesize`
-const KEEP_EXTERIORRING string = `keepexterior`
+const KEEP_OUTER_RING string = `keepouter`
 
 func main() {
 	app := cli.NewApp()
@@ -52,12 +52,12 @@ func main() {
 			EnvVars:  []string{"SIEVE_PAGESIZE"},
 		},
 		&cli.BoolFlag{
-			Name:     KEEP_EXTERIORRING,
+			Name:     KEEP_OUTER_RING,
 			Aliases:  []string{"k"},
-			Usage:    "Only sieve interior rings; always keep exterior ring.",
+			Usage:    "Only sieve inner rings; always keep outer ring.",
 			Value:    false,
 			Required: false,
-			EnvVars:  []string{"KEEP_EXTERIORRING"},
+			EnvVars:  []string{"KEEP_OUTER_RING"},
 		},
 	}
 
@@ -90,7 +90,7 @@ func main() {
 			log.Printf("  sieving %s", table.Name)
 			source.Table = table
 			target.Table = table
-			pkg.Sieve(source, target, c.Float64(RESOLUTION), c.Bool(KEEP_EXTERIORRING))
+			pkg.Sieve(source, target, c.Float64(RESOLUTION), c.Bool(KEEP_OUTER_RING))
 			log.Printf("  finised %s", table.Name)
 		}
 
