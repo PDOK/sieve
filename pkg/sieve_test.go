@@ -61,21 +61,24 @@ func TestPolygonSieve(t *testing.T) {
 		geom       [][][2]float64
 		resolution float64
 		sieved     [][][2]float64
+		keepOuter  bool
 	}{
 		// Lower resolution
-		0: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}},
+		0: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, keepOuter: false},
 		// Higher resolution
-		1: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(101), sieved: nil},
+		1: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(101), sieved: nil, keepOuter: false},
 		// Nil input
-		2: {geom: nil, resolution: float64(1), sieved: nil},
+		2: {geom: nil, resolution: float64(1), sieved: nil, keepOuter: false},
 		// Filterout donut
-		3: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 6}, {6, 6}, {6, 5}, {5, 5}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}},
+		3: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 6}, {6, 6}, {6, 5}, {5, 5}}}, resolution: float64(9), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, keepOuter: false},
 		// Donut stays
-		4: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}, resolution: float64(3), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}},
+		4: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}, resolution: float64(3), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}, {{5, 5}, {5, 8.5}, {8.5, 8.5}, {8.5, 5}, {5, 5}}}, keepOuter: false},
+		// Higher resolution, keep outer
+		5: {geom: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, resolution: float64(101), sieved: [][][2]float64{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, keepOuter: true},
 	}
 
 	for k, test := range tests {
-		geom := polygonSieve(test.geom, test.resolution)
+		geom := polygonSieve(test.geom, test.resolution, test.keepOuter)
 		if test.sieved != nil && geom != nil {
 			if area(geom) != area(test.sieved) {
 				t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
@@ -93,23 +96,28 @@ func TestMultiPolygonSieve(t *testing.T) {
 		geom       [][][][2]float64
 		resolution float64
 		sieved     [][][][2]float64
+		keepOuter  bool
 	}{
 		// Lower single polygon resolution
-		0: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}},
+		0: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, keepOuter: false},
 		// Higher single polygon resolution
-		1: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(101), sieved: nil},
+		1: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(101), sieved: nil, keepOuter: false},
 		// Nil input
-		2: {geom: nil, resolution: float64(1), sieved: nil},
+		2: {geom: nil, resolution: float64(1), sieved: nil, keepOuter: false},
 		// Low multi polygon resolution
-		3: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}},
+		3: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(1), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, keepOuter: false},
 		// single hit on multi polygon
-		4: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(9), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}},
+		4: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(9), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, keepOuter: false},
 		// single hit on multi polygon
-		5: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(101), sieved: nil},
+		5: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(101), sieved: nil, keepOuter: false},
+		// Higher single polygon resolution
+		6: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, resolution: float64(101), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}}, keepOuter: true},
+		// single hit on multi polygon
+		7: {geom: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, resolution: float64(101), sieved: [][][][2]float64{{{{0, 0}, {0, 10}, {10, 10}, {10, 0}, {0, 0}}}, {{{15, 15}, {15, 20}, {20, 20}, {20, 15}, {15, 15}}}}, keepOuter: true},
 	}
 
 	for k, test := range tests {
-		geom := multiPolygonSieve(test.geom, test.resolution)
+		geom := multiPolygonSieve(test.geom, test.resolution, test.keepOuter)
 		if test.sieved != nil && geom != nil {
 			if len(geom) != len(test.sieved) {
 				t.Errorf("test: %d, expected: %f \ngot: %f", k, test.sieved, geom)
