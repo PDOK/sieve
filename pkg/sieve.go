@@ -17,7 +17,7 @@ func readFeaturesFromSource(source Source, preSieve chan Feature) {
 // the two steps that are done are:
 // 1. filter features with a area smaller then the (resolution*resolution)
 // 2. removes interior rings with a area smaller then the (resolution*resolution)
-func sieveFeatures(preSieve chan Feature, postSieve chan Feature, resolution float64) {
+func sieveFeatures(preSieve chan Feature, postSieve chan Feature, resolution float64, keepOuter bool) {
 	var preSieveCount, postSieveCount, nonPolygonCount, multiPolygonCount uint64
 	for {
 		feature, hasMore := <-preSieve
@@ -29,7 +29,7 @@ func sieveFeatures(preSieve chan Feature, postSieve chan Feature, resolution flo
 			case geom.Polygon:
 				var p geom.Polygon
 				p = feature.Geometry().(geom.Polygon)
-				if p := polygonSieve(p, resolution); p != nil {
+				if p := polygonSieve(p, resolution, keepOuter); p != nil {
 					feature.UpdateGeometry(p)
 					postSieveCount++
 					postSieve <- feature
@@ -37,7 +37,7 @@ func sieveFeatures(preSieve chan Feature, postSieve chan Feature, resolution flo
 			case geom.MultiPolygon:
 				var mp geom.MultiPolygon
 				mp = feature.Geometry().(geom.MultiPolygon)
-				if mp := multiPolygonSieve(mp, resolution); mp != nil {
+				if mp := multiPolygonSieve(mp, resolution, keepOuter); mp != nil {
 					feature.UpdateGeometry(mp)
 					multiPolygonCount++
 					postSieveCount++
@@ -70,10 +70,10 @@ func writeFeaturesToTarget(postSieve chan Feature, kill chan bool, target Target
 }
 
 // multiPolygonSieve will split it self into the separated polygons that will be sieved before building a new MULTIPOLYGON
-func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) geom.MultiPolygon {
+func multiPolygonSieve(mp geom.MultiPolygon, resolution float64, keepOuter bool) geom.MultiPolygon {
 	var sievedMultiPolygon geom.MultiPolygon
 	for _, p := range mp {
-		if sievedPolygon := polygonSieve(p, resolution); sievedPolygon != nil {
+		if sievedPolygon := polygonSieve(p, resolution, keepOuter); sievedPolygon != nil {
 			sievedMultiPolygon = append(sievedMultiPolygon, sievedPolygon)
 		}
 	}
@@ -81,7 +81,7 @@ func multiPolygonSieve(mp geom.MultiPolygon, resolution float64) geom.MultiPolyg
 }
 
 // polygonSieve will sieve a given POLYGON
-func polygonSieve(p geom.Polygon, resolution float64) geom.Polygon {
+func polygonSieve(p geom.Polygon, resolution float64, keepOuter bool) geom.Polygon {
 	minArea := resolution * resolution
 	if area(p) > minArea {
 		if len(p) > 1 {
@@ -95,6 +95,10 @@ func polygonSieve(p geom.Polygon, resolution float64) geom.Polygon {
 			return sievedPolygon
 		}
 		return p
+	} else if keepOuter {
+		var sievedPolygon geom.Polygon
+		sievedPolygon = append(sievedPolygon, p[0])
+		return sievedPolygon
 	}
 	return nil
 }
@@ -128,14 +132,14 @@ func shoelace(pts [][2]float64) float64 {
 	return math.Abs(sum / 2)
 }
 
-func Sieve(source Source, target Target, resolution float64) {
+func Sieve(source Source, target Target, resolution float64, keepOuter bool) {
 
 	preSieve := make(chan Feature)
 	postSieve := make(chan Feature)
 	kill := make(chan bool)
 
 	go writeFeaturesToTarget(postSieve, kill, target)
-	go sieveFeatures(preSieve, postSieve, resolution)
+	go sieveFeatures(preSieve, postSieve, resolution, keepOuter)
 	go readFeaturesFromSource(source, preSieve)
 
 	for {
