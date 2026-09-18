@@ -1,63 +1,92 @@
-# Sieve
+# sieve
 
-![GitHub license](https://img.shields.io/github/license/PDOK/sieve) [![GitHub
-release](https://img.shields.io/github/release/PDOK/sieve.svg)](https://github.com/PDOK/sieve/releases)
-[![Go Report
-Card](https://goreportcard.com/badge/PDOK/sieve)](https://goreportcard.com/report/PDOK/sieve)
-[![Docker
-Pulls](https://img.shields.io/docker/pulls/pdok/sieve.svg)](https://hub.docker.com/r/pdok/sieve)
+_Sieves small polygon geometries out of a GeoPackage, written in Go._
 
-Sieves [GeoPackage](https://www.geopackage.org/) Polygon geometries.
+[![GitHub release](https://img.shields.io/github/release/PDOK/sieve.svg)](https://github.com/PDOK/sieve/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/pdok/sieve.svg)](https://hub.docker.com/r/pdok/sieve)
+[![GitHub license](https://img.shields.io/github/license/PDOK/sieve)](https://github.com/PDOK/sieve/blob/master/LICENSE)
 
-The purpose of this application is to prerefine the (MULTI)POLYGON geometries in
-a geopackage used for vector tiles by filtering out geometries (based on the
-given resolution) smaller than the pixels that are generated from the given
-vectoriles. By doing this specific artifacts/errors regarding the rendering of
-vector tiles can be omitted, and less data needs to be processed.
+## Description
 
-## Notes
+sieve reads a source [GeoPackage](https://www.geopackage.org/) and writes a new,
+sieved GeoPackage. For every table containing `POLYGON` or `MULTIPOLYGON`
+geometries, it filters out (or, for a `MULTIPOLYGON`, splits and filters the
+individual) polygons whose area is smaller than the given resolution squared,
+and it removes interior rings whose area is smaller than that same
+threshold.<!-- source: pkg/sieve.go:20-49,80-100 --> Tables containing other
+geometry types are copied unchanged.<!-- source: main.go:70-80 -->
 
-- It will take a Geopackage and writes a new Geopackage where all the
-  (MULTI)POLYGON tables are sieved.
-  - All other spatial tables are 'untouched' and copied as-is.
-  - Other not spatial tables are not copied to the new geopackage.
-- The area of a POLYGON is used for determining if the geometries will be
-  sieved, not the extent. So geometries with a extent larger then the given
-  resolution but with an area smaller then that resolution will be sieved.
-- A MULTIPOLYGON will be split into separate POLYGONs that will be sieved. So
-  a MULTIPOLYGON containing elements smaller then the given resolution will have
-  those parts removed.
-- :warning: Spatialite lib is mandatory for running this application. This lib is needed for
-  creating the RTree triggers on the spatial tables for updating/maintaining the
-  RTree.
+The purpose is to prerefine `(MULTI)POLYGON` geometries in a GeoPackage used
+for vector tiles, filtering out geometries smaller than the pixels generated
+at a given resolution. This avoids rendering artifacts and reduces the amount
+of data that needs to be processed.
+
+## Installation
+
+### Docker
+
+```sh
+docker build -t pdok/sieve .
+```
+
+### Local
+
+```sh
+go build .
+```
 
 ## Usage
 
-```go
-go build .
+```sh
+docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve /sieve \
+  -s=/example/example.gpkg -t=/example/example-processed.gpkg -r=50001 -p=10
+```
 
-go run . -s=[source GPKG] -t=[target GPKG] -r=[resolution for filtering] \
-   -p=[pagesize for writing to target GPKG]
+Or, when built locally:
 
+```sh
+./sieve -s=[source GPKG] -t=[target GPKG] -r=[resolution] -p=[pagesize]
+```
+
+<!-- source: main.go:22-53 -->
+| Flag | Env var | Description | Default |
+| --- | --- | --- | --- |
+| `-s`, `--source` | `SOURCE_GPKG` | Source GeoPackage (required) | - |
+| `-t`, `--target` | `TARGET_GPKG` | Target GeoPackage (required) | - |
+| `-r`, `--resolution` | `SIEVE_RESOLUTION` | Threshold area (`resolution * resolution`) below which a feature is sieved | `0.0` |
+| `-p`, `--pagesize` | `SIEVE_PAGESIZE` | Number of features written per transaction to the target GeoPackage | `1000` |
+
+Running the example above against [`example/example.gpkg`](example/example.gpkg)
+results in the following:
+
+![with interiors](./images/with-interiors.jpg) ![without interiors](./images/without-interiors.jpg)
+
+## Develop
+
+### Prerequisites
+
+- Go 1.18<!-- source: go.mod:3 -->
+- The `libsqlite3-mod-spatialite` library, required at runtime for creating
+  the RTree triggers used to maintain the spatial index<!-- source: Dockerfile:32-34 -->
+
+### Testing
+
+```sh
 go test ./... -covermode=atomic
 ```
 
-## Docker
+No lint configuration or CI workflow currently exists in this repository.
 
-```docker
-docker build -t pdok/sieve .
-docker run --rm --name sieve -v `pwd`/example:/example pdok/sieve ./sieve \
-   -s=./example/example.gpkg -t=./example/example-processed.gpkg -r=50001 -p=10
-```
+## Contributing
 
-With the docker example above processing the ```example.gpkg``` would result in
-the following.
+sieve is developed by PDOK. Contributions are welcome; please open an issue
+or pull request in the issue tracker.
 
-![with interiors](./images/with-interiors.jpg)  ![without
-interiors](./images/without-interiors.jpg)
+## Contact
 
-## Inspiration
+Contacting the maintainers can be done through the issue tracker.
 
-Code is inspired by the PostGis [Sieve
-function](https://github.com/mapbox/postgis-vt-util/blob/master/src/Sieve.sql)
-from Mapbox.
+## Authors
+
+This project is developed by [PDOK](https://www.pdok.nl/), a platform for
+publication of geographic datasets of Dutch governmental institutions.
